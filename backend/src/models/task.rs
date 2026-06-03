@@ -12,6 +12,7 @@ pub struct Task {
     pub available_from: Option<DateTime<Utc>>,
     pub due_by: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
+    pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -23,6 +24,7 @@ pub struct CreateTask {
     pub context_id: String,
     pub available_from: Option<DateTime<Utc>>,
     pub due_by: Option<DateTime<Utc>>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema, Default)]
@@ -32,6 +34,8 @@ pub struct UpdateTask {
     pub context_id: Option<String>,
     pub available_from: Option<DateTime<Utc>>,
     pub due_by: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "crate::models::double_option")]
+    pub notes: Option<Option<String>>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

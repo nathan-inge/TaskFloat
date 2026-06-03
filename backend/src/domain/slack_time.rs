@@ -57,6 +57,7 @@ mod tests {
             available_from: None,
             due_by: due,
             completed_at: None,
+            notes: None,
             created_at: at(2026, 1, 1, 0, 0),
             updated_at: at(2026, 1, 1, 0, 0),
         }

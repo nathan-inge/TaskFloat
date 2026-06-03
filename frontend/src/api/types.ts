@@ -9,6 +9,7 @@ export interface Task {
   available_from: string | null;
   due_by: string | null;
   completed_at: string | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -19,6 +20,7 @@ export interface CreateTask {
   context_id: string;
   available_from?: string | null;
   due_by?: string | null;
+  notes?: string | null;
 }
 
 export interface UpdateTask {
@@ -27,6 +29,7 @@ export interface UpdateTask {
   context_id?: string;
   available_from?: string;
   due_by?: string;
+  notes?: string | null;
 }
 
 export interface TaskListResponse {

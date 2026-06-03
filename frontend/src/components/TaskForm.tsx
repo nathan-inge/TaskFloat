@@ -42,6 +42,7 @@ export default function TaskForm({
     task?.effort_minutes ?? 30,
   );
   const [dueBy, setDueBy] = useState(task?.due_by ? isoToLocal(task.due_by) : '');
+  const [notes, setNotes] = useState(task?.notes ?? '');
   const [contextId, setContextId] = useState<string | null>(
     task?.context_id ?? defaultContextId,
   );
@@ -76,12 +77,14 @@ export default function TaskForm({
     }
     setBusy(true);
     try {
+      const notesTrim = notes.trim();
       if (mode === 'create') {
         await api.createTask({
           title: title.trim(),
           effort_minutes: effortMinutes,
           context_id: contextId,
           due_by: dueBy ? new Date(dueBy).toISOString() : null,
+          notes: notesTrim || null,
         });
       } else if (task) {
         await api.updateTask(task.id, {
@@ -89,6 +92,7 @@ export default function TaskForm({
           effort_minutes: effortMinutes,
           context_id: contextId,
           due_by: dueBy ? new Date(dueBy).toISOString() : undefined,
+          notes: notesTrim ? notesTrim : null,
         });
       }
       navigate('/');
@@ -199,6 +203,17 @@ export default function TaskForm({
           <span className="ml-auto text-slate-400">▾</span>
         </button>
       </div>
+
+      <label className="block">
+        <span className="text-sm font-medium text-slate-600">Notes (optional)</span>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Links, sub-steps, context, anything else…"
+          rows={4}
+          className="resize-y"
+        />
+      </label>
 
       {error && (
         <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>

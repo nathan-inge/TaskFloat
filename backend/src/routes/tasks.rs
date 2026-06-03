@@ -154,8 +154,8 @@ pub async fn create_task(
     let now = Utc::now();
     sqlx::query(
         r#"INSERT INTO tasks
-            (id, title, effort_minutes, context_id, available_from, due_by, completed_at, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,NULL,?,?)"#,
+            (id, title, effort_minutes, context_id, available_from, due_by, completed_at, notes, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,NULL,?,?,?)"#,
     )
     .bind(&id)
     .bind(&body.title)
@@ -163,6 +163,7 @@ pub async fn create_task(
     .bind(&body.context_id)
     .bind(body.available_from)
     .bind(body.due_by)
+    .bind(body.notes.as_deref().filter(|s| !s.is_empty()))
     .bind(now)
     .bind(now)
     .execute(&pool)
@@ -225,6 +226,11 @@ pub async fn update_task(
     }
     if let Some(db) = body.due_by {
         qb.push(", due_by = ").push_bind(db);
+    }
+    if let Some(notes) = &body.notes {
+        // notes is double-Option: None = unchanged, Some(None) = clear, Some(Some(s)) = set
+        let value = notes.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        qb.push(", notes = ").push_bind(value);
     }
     qb.push(" WHERE id = ").push_bind(&id);
     qb.build().execute(&pool).await?;

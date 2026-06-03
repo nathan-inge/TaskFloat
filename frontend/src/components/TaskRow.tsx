@@ -67,6 +67,15 @@ export default function TaskRow({
           >
             {task.title}
           </span>
+          {task.notes && (
+            <span
+              className="shrink-0 text-xs text-slate-400"
+              title="Has notes"
+              aria-label="Has notes"
+            >
+              📝
+            </span>
+          )}
           {leaf && path.length > 1 && (
             <span className="hidden truncate text-xs text-slate-400 sm:inline">
               {path.slice(0, -1).map((c) => c.name).join(' › ')}
