@@ -1,0 +1,16 @@
+[Unit]
+Description=Contextual Task Organizer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/taskorg
+Restart=on-failure
+RestartSec=3
+Environment=DATABASE_URL=sqlite://%h/.taskorg/db.sqlite?mode=rwc
+Environment=BIND_ADDR=0.0.0.0:5000
+Environment=RUST_LOG=taskorg=info,tower_http=info
+
+[Install]
+WantedBy=default.target

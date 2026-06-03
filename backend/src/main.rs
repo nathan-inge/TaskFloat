@@ -1,0 +1,75 @@
+mod config;
+mod db;
+mod domain;
+mod error;
+mod models;
+mod openapi;
+mod routes;
+mod static_assets;
+
+use anyhow::Result;
+use axum::{
+    http::header,
+    response::IntoResponse,
+    routing::get,
+    Router,
+};
+use std::net::SocketAddr;
+use std::sync::OnceLock;
+use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
+
+static OPENAPI_JSON: OnceLock<String> = OnceLock::new();
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "taskorg=info,tower_http=info".into()),
+        )
+        .init();
+
+    // utoipa's macro-generated `openapi()` recursively constructs the spec and overflows
+    // the default thread stack. Build it once at startup on an explicit large-stack thread,
+    // serialize, and serve the cached string at runtime.
+    OPENAPI_JSON
+        .set(build_openapi_json()?)
+        .map_err(|_| anyhow::anyhow!("openapi already set"))?;
+
+    let cfg = config::Config::from_env()?;
+    let pool = db::create_pool(&cfg.database_url).await?;
+    db::run_migrations(&pool).await?;
+
+    let app = Router::new()
+        .nest("/api", routes::api_router(pool.clone()))
+        .route("/api/openapi.json", get(openapi_json))
+        .fallback(static_assets::handler)
+        .layer(CorsLayer::permissive())
+        .layer(TraceLayer::new_for_http());
+
+    let addr: SocketAddr = cfg.bind_addr.parse()?;
+    tracing::info!("taskorg listening on http://{}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+fn build_openapi_json() -> Result<String> {
+    use utoipa::OpenApi;
+    let json = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| serde_json::to_string(&openapi::ApiDoc::openapi()).unwrap())
+        .map_err(|e| anyhow::anyhow!("spawn openapi thread: {e}"))?
+        .join()
+        .map_err(|_| anyhow::anyhow!("openapi build panicked"))?;
+    Ok(json)
+}
+
+async fn openapi_json() -> impl IntoResponse {
+    let body = OPENAPI_JSON.get().expect("openapi initialized at startup");
+    (
+        [(header::CONTENT_TYPE, "application/json")],
+        body.as_str().to_owned(),
+    )
+}

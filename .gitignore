@@ -1,0 +1,9 @@
+target/
+node_modules/
+dist/
+*.sqlite
+*.sqlite-journal
+.env
+.env.local
+.DS_Store
+frontend/src/api/generated.d.ts
