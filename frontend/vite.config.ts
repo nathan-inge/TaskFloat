@@ -10,7 +10,7 @@ export default defineConfig({
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'Contextual Task Organizer',
-        short_name: 'TaskOrg',
+        short_name: 'TODO',
         description: 'Personal task manager with GTD contexts and Slack Time prioritization.',
         theme_color: '#1e88e5',
         background_color: '#f8fafc',

@@ -9,7 +9,7 @@ ExecStart=%h/.local/bin/taskorg
 Restart=on-failure
 RestartSec=3
 Environment=DATABASE_URL=sqlite://%h/.taskorg/db.sqlite?mode=rwc
-Environment=BIND_ADDR=0.0.0.0:5000
+Environment=BIND_ADDR=127.0.0.1:5000
 Environment=RUST_LOG=taskorg=info,tower_http=info
 
 [Install]
