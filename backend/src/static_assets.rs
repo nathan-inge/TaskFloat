@@ -30,7 +30,20 @@ fn serve(path: &str) -> Option<Response<Body>> {
     let resp = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime.as_ref())
+        .header(header::CACHE_CONTROL, cache_control_for(path))
         .body(Body::from(asset.data.into_owned()))
         .ok()?;
     Some(resp)
+}
+
+// Fingerprinted Vite bundles live under `assets/` and never change content for
+// a given URL — safe to cache forever. Everything else (index.html, sw.js,
+// manifest.webmanifest, icons) must revalidate so an expired Cloudflare Access
+// session is caught on the next navigation rather than serving stale HTML.
+fn cache_control_for(path: &str) -> &'static str {
+    if path.starts_with("assets/") {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    }
 }

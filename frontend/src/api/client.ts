@@ -1,3 +1,4 @@
+import { forceReauth } from '../lib/auth';
 import type {
   ApiError,
   Context,
@@ -19,11 +20,24 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: body ? { 'content-type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      // Surface Cloudflare Access' 302-to-login as an opaqueredirect instead
+      // of silently following into a cross-origin CORS failure.
+      redirect: 'manual',
+    });
+  } catch {
+    // Network or cross-origin redirect failure — most likely an expired
+    // Access session after the app shell was already loaded from cache.
+    return forceReauth();
+  }
+  if (res.type === 'opaqueredirect') {
+    return forceReauth();
+  }
   if (!res.ok) {
     let msg = `${method} ${path} ${res.status}`;
     try {
