@@ -54,12 +54,15 @@ mod tests {
             title: "x".into(),
             effort_minutes: effort,
             context_id: "c".into(),
+            parent_id: None,
             available_from: None,
             due_by: due,
             completed_at: None,
             notes: None,
             created_at: at(2026, 1, 1, 0, 0),
             updated_at: at(2026, 1, 1, 0, 0),
+            subtask_count: 0,
+            subtask_done_count: 0,
         }
     }
 

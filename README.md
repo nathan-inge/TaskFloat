@@ -11,6 +11,27 @@ Tasks with `ST ≤ 0` get a `🚨 Overdue Buffer` badge. When the sum of effort 
 urgent tasks (ST ≤ 24h) exceeds your remaining workday capacity, a capacity warning
 appears on the dashboard.
 
+## Nested tasks
+
+A task can hang under another task to any depth via `parent_id`. Subtasks are ordinary
+tasks — their own effort, due date, context and Slack Time — so a subtask can live in a
+different context than its parent and still sort on its own merits. Rules worth knowing:
+
+- **Ordering** is per sibling group: roots sort by Slack Time, and each parent's children
+  sort by Slack Time beneath it. Completed subtasks sink within their group.
+- **Filtering wins over nesting.** A subtask whose parent is filtered out of the current
+  view (different context, or the parent is complete and "Show completed" is off) is shown
+  at the top level rather than disappearing with it.
+- **Deleting a parent deletes its whole subtree** (`ON DELETE CASCADE`). The confirm
+  dialogs say how many subtasks go with it.
+- **Completion does not cascade** in either direction — each task is checked off on its
+  own, and a parent shows a `done/total` badge for its direct subtasks.
+- **Capacity math is unchanged**: every task contributes its own effort. If you split a
+  parent's effort across its subtasks, set the parent's own effort to match what is left,
+  or the day's total will count the work twice.
+- Cycles are rejected by the API (`400`): a task cannot be nested under itself or under
+  one of its own subtasks.
+
 ## Architecture (one binary)
 
 - **Rust** backend (`axum` + `sqlx` over **SQLite**).
@@ -112,6 +133,15 @@ curl http://taskorg-cd:5000/api/contexts/tree
 curl -X POST http://taskorg-cd:5000/api/tasks \
   -H 'content-type: application/json' \
   -d '{"title":"call mom","effort_minutes":15,"context_id":"<uuid>","due_by":"2026-06-04T17:00:00Z"}'
+
+# Add a subtask under an existing task
+curl -X POST http://taskorg-cd:5000/api/tasks \
+  -H 'content-type: application/json' \
+  -d '{"title":"book flights","effort_minutes":30,"context_id":"<uuid>","parent_id":"<task-uuid>"}'
+
+# Promote a subtask back to the top level (explicit null; omit the field to leave it alone)
+curl -X PATCH http://taskorg-cd:5000/api/tasks/<task-uuid> \
+  -H 'content-type: application/json' -d '{"parent_id":null}'
 
 # This week's completed tasks (drives weekly summaries)
 curl 'http://taskorg-cd:5000/api/tasks?include_completed=true&completed_after=2026-05-28T00:00:00Z'

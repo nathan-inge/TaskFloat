@@ -9,9 +9,49 @@ use sqlx::SqlitePool;
 use utoipa::IntoParams;
 use uuid::Uuid;
 
-use crate::domain::{context_tree, slack_time};
+use crate::domain::{context_tree, slack_time, task_tree};
 use crate::error::{AppError, AppResult};
 use crate::models::{CreateTask, Settings, Task, TaskListResponse, UpdateTask};
+
+/// Every `Task` we hand back carries its direct-subtask tallies, so this select
+/// list is the only way to read tasks out of the database.
+const TASK_SELECT: &str = r#"SELECT t.*,
+    (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id) AS subtask_count,
+    (SELECT COUNT(*) FROM tasks c WHERE c.parent_id = t.id AND c.completed_at IS NOT NULL)
+        AS subtask_done_count
+    FROM tasks t"#;
+
+async fn fetch_task(pool: &SqlitePool, id: &str) -> AppResult<Task> {
+    Ok(
+        sqlx::query_as::<_, Task>(&format!("{TASK_SELECT} WHERE t.id = ?1"))
+            .bind(id)
+            .fetch_one(pool)
+            .await?,
+    )
+}
+
+/// Validates a proposed parent for `task_id` (`None` when creating).
+async fn check_parent(
+    pool: &SqlitePool,
+    task_id: Option<&str>,
+    parent_id: &str,
+) -> AppResult<()> {
+    let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM tasks WHERE id = ?1")
+        .bind(parent_id)
+        .fetch_optional(pool)
+        .await?;
+    if exists.is_none() {
+        return Err(AppError::BadRequest("parent_id does not exist".into()));
+    }
+    if let Some(task_id) = task_id {
+        if task_tree::would_create_cycle(pool, task_id, parent_id).await? {
+            return Err(AppError::BadRequest(
+                "a task cannot be nested under itself or one of its subtasks".into(),
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub fn router() -> Router<SqlitePool> {
     Router::new()
@@ -31,7 +71,7 @@ pub async fn get_task(
     State(pool): State<SqlitePool>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Task>> {
-    let task: Option<Task> = sqlx::query_as("SELECT * FROM tasks WHERE id = ?1")
+    let task: Option<Task> = sqlx::query_as(&format!("{TASK_SELECT} WHERE t.id = ?1"))
         .bind(&id)
         .fetch_optional(&pool)
         .await?;
@@ -74,7 +114,7 @@ pub async fn list_tasks(
         || q.completed_before.is_some();
 
     let mut qb: sqlx::QueryBuilder<sqlx::Sqlite> =
-        sqlx::QueryBuilder::new("SELECT * FROM tasks WHERE 1=1");
+        sqlx::QueryBuilder::new(format!("{TASK_SELECT} WHERE 1=1"));
 
     if let Some(ids) = &ctx_ids {
         if ids.is_empty() {
@@ -83,7 +123,7 @@ pub async fn list_tasks(
                 capacity_warning: false,
             }));
         }
-        qb.push(" AND context_id IN (");
+        qb.push(" AND t.context_id IN (");
         let mut sep = qb.separated(", ");
         for id in ids {
             sep.push_bind(id);
@@ -92,19 +132,19 @@ pub async fn list_tasks(
     }
 
     if !include_completed {
-        qb.push(" AND completed_at IS NULL");
+        qb.push(" AND t.completed_at IS NULL");
     }
 
     if let Some(after) = &q.completed_after {
-        qb.push(" AND completed_at >= ").push_bind(after);
+        qb.push(" AND t.completed_at >= ").push_bind(after);
     }
     if let Some(before) = &q.completed_before {
-        qb.push(" AND completed_at < ").push_bind(before);
+        qb.push(" AND t.completed_at < ").push_bind(before);
     }
 
     // Availability filter — hide future-unlocked tasks unless explicitly looking at completed.
     if !include_completed {
-        qb.push(" AND (available_from IS NULL OR available_from <= ")
+        qb.push(" AND (t.available_from IS NULL OR t.available_from <= ")
             .push_bind(now)
             .push(")");
     }
@@ -149,18 +189,22 @@ pub async fn create_task(
     if ctx_exists.is_none() {
         return Err(AppError::BadRequest("context_id does not exist".into()));
     }
+    if let Some(parent_id) = &body.parent_id {
+        check_parent(&pool, None, parent_id).await?;
+    }
 
     let id = Uuid::new_v4().to_string();
     let now = Utc::now();
     sqlx::query(
         r#"INSERT INTO tasks
-            (id, title, effort_minutes, context_id, available_from, due_by, completed_at, notes, created_at, updated_at)
-            VALUES (?,?,?,?,?,?,NULL,?,?,?)"#,
+            (id, title, effort_minutes, context_id, parent_id, available_from, due_by, completed_at, notes, created_at, updated_at)
+            VALUES (?,?,?,?,?,?,?,NULL,?,?,?)"#,
     )
     .bind(&id)
     .bind(&body.title)
     .bind(body.effort_minutes)
     .bind(&body.context_id)
+    .bind(&body.parent_id)
     .bind(body.available_from)
     .bind(body.due_by)
     .bind(body.notes.as_deref().filter(|s| !s.is_empty()))
@@ -169,11 +213,7 @@ pub async fn create_task(
     .execute(&pool)
     .await?;
 
-    let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = ?1")
-        .bind(&id)
-        .fetch_one(&pool)
-        .await?;
-    Ok(Json(task))
+    Ok(Json(fetch_task(&pool, &id).await?))
 }
 
 #[utoipa::path(patch, path = "/api/tasks/{id}", request_body = UpdateTask, responses((status = 200, body = Task)))]
@@ -207,6 +247,9 @@ pub async fn update_task(
             return Err(AppError::BadRequest("context_id does not exist".into()));
         }
     }
+    if let Some(Some(parent_id)) = &body.parent_id {
+        check_parent(&pool, Some(&id), parent_id).await?;
+    }
 
     let now = Utc::now();
     let mut qb: sqlx::QueryBuilder<sqlx::Sqlite> =
@@ -220,6 +263,10 @@ pub async fn update_task(
     }
     if let Some(cid) = body.context_id.as_ref() {
         qb.push(", context_id = ").push_bind(cid);
+    }
+    if let Some(parent) = &body.parent_id {
+        // Double-Option: None = unchanged, Some(None) = promote to top level.
+        qb.push(", parent_id = ").push_bind(parent.clone());
     }
     if let Some(af) = body.available_from {
         qb.push(", available_from = ").push_bind(af);
@@ -235,11 +282,7 @@ pub async fn update_task(
     qb.push(" WHERE id = ").push_bind(&id);
     qb.build().execute(&pool).await?;
 
-    let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = ?1")
-        .bind(&id)
-        .fetch_one(&pool)
-        .await?;
-    Ok(Json(task))
+    Ok(Json(fetch_task(&pool, &id).await?))
 }
 
 #[utoipa::path(post, path = "/api/tasks/{id}/complete", responses((status = 200, body = Task)))]
@@ -256,11 +299,7 @@ pub async fn complete_task(
     if res.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("task {} not found", id)));
     }
-    let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = ?1")
-        .bind(&id)
-        .fetch_one(&pool)
-        .await?;
-    Ok(Json(task))
+    Ok(Json(fetch_task(&pool, &id).await?))
 }
 
 #[utoipa::path(post, path = "/api/tasks/{id}/uncomplete", responses((status = 200, body = Task)))]
@@ -277,11 +316,7 @@ pub async fn uncomplete_task(
     if res.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("task {} not found", id)));
     }
-    let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = ?1")
-        .bind(&id)
-        .fetch_one(&pool)
-        .await?;
-    Ok(Json(task))
+    Ok(Json(fetch_task(&pool, &id).await?))
 }
 
 #[utoipa::path(delete, path = "/api/tasks/{id}", responses((status = 204)))]

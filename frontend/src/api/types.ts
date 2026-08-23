@@ -6,18 +6,23 @@ export interface Task {
   title: string;
   effort_minutes: number;
   context_id: string;
+  parent_id: string | null;
   available_from: string | null;
   due_by: string | null;
   completed_at: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** Direct subtasks, counted server-side (independent of the current filter). */
+  subtask_count: number;
+  subtask_done_count: number;
 }
 
 export interface CreateTask {
   title: string;
   effort_minutes: number;
   context_id: string;
+  parent_id?: string | null;
   available_from?: string | null;
   due_by?: string | null;
   notes?: string | null;
@@ -27,6 +32,8 @@ export interface UpdateTask {
   title?: string;
   effort_minutes?: number;
   context_id?: string;
+  /** Omit to leave unchanged; null promotes the task to top level. */
+  parent_id?: string | null;
   available_from?: string;
   due_by?: string;
   notes?: string | null;

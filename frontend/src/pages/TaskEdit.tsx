@@ -9,15 +9,23 @@ export default function TaskEdit() {
   const { id } = useParams<{ id: string }>();
   const { contexts, loading: ctxLoading } = useContexts();
   const [task, setTask] = useState<Task | null>(null);
+  const [parent, setParent] = useState<Task | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
+    setTask(null);
+    setParent(null);
     api
       .getTask(id)
-      .then((t) => {
-        if (!cancelled) setTask(t);
+      .then(async (t) => {
+        // The parent's title is needed to label the "Subtask of" field.
+        const p = t.parent_id ? await api.getTask(t.parent_id).catch(() => null) : null;
+        if (!cancelled) {
+          setParent(p);
+          setTask(t);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError((e as Error).message);
@@ -37,10 +45,18 @@ export default function TaskEdit() {
     <>
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto max-w-3xl px-4 py-3">
-          <h1 className="text-lg font-semibold">Edit task</h1>
+          <h1 className="text-lg font-semibold">
+            {task.parent_id ? 'Edit subtask' : 'Edit task'}
+          </h1>
         </div>
       </header>
-      <TaskForm mode="edit" contexts={contexts} task={task} />
+      <TaskForm
+        key={task.id}
+        mode="edit"
+        contexts={contexts}
+        task={task}
+        parentTask={parent}
+      />
     </>
   );
 }

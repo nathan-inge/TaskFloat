@@ -10,12 +10,15 @@ import {
   type DueShortcutKind,
 } from '../lib/dueShortcuts';
 import ContextTreeNode from './ContextTreeNode';
+import TaskPicker from './TaskPicker';
 
 interface Props {
   contexts: Context[];
   mode: 'create' | 'edit';
   defaultContextId?: string | null;
   task?: Task;
+  /** Task this one hangs under, if any — prefilled from `?parent=` or loaded on edit. */
+  parentTask?: Task | null;
 }
 
 const EFFORT_CHOICES: Array<{ minutes: number; label: string }> = [
@@ -36,6 +39,7 @@ export default function TaskForm({
   mode,
   defaultContextId = null,
   task,
+  parentTask = null,
 }: Props) {
   const [title, setTitle] = useState(task?.title ?? '');
   const [effortMinutes, setEffortMinutes] = useState<number>(
@@ -46,7 +50,9 @@ export default function TaskForm({
   const [contextId, setContextId] = useState<string | null>(
     task?.context_id ?? defaultContextId,
   );
+  const [parent, setParent] = useState<Task | null>(parentTask);
   const [picking, setPicking] = useState(false);
+  const [pickingParent, setPickingParent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
@@ -83,6 +89,7 @@ export default function TaskForm({
           title: title.trim(),
           effort_minutes: effortMinutes,
           context_id: contextId,
+          parent_id: parent?.id ?? null,
           due_by: dueBy ? new Date(dueBy).toISOString() : null,
           notes: notesTrim || null,
         });
@@ -91,6 +98,7 @@ export default function TaskForm({
           title: title.trim(),
           effort_minutes: effortMinutes,
           context_id: contextId,
+          parent_id: parent?.id ?? null,
           due_by: dueBy ? new Date(dueBy).toISOString() : undefined,
           notes: notesTrim ? notesTrim : null,
         });
@@ -105,7 +113,13 @@ export default function TaskForm({
 
   async function deleteTask() {
     if (!task) return;
-    if (!confirm(`Delete "${task.title}"?`)) return;
+    const msg =
+      task.subtask_count > 0
+        ? `Delete "${task.title}" and its ${task.subtask_count} subtask${
+            task.subtask_count === 1 ? '' : 's'
+          }?`
+        : `Delete "${task.title}"?`;
+    if (!confirm(msg)) return;
     setBusy(true);
     try {
       await api.deleteTask(task.id);
@@ -204,6 +218,40 @@ export default function TaskForm({
         </button>
       </div>
 
+      <div>
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium text-slate-600">
+            Subtask of (optional)
+          </span>
+          {parent && (
+            <button
+              type="button"
+              onClick={() => setParent(null)}
+              className="text-xs font-medium text-slate-500 hover:text-rose-600"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setPickingParent(true)}
+          className="mt-1 flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-left"
+        >
+          <span className="truncate">
+            {parent ? (
+              <>
+                <span className="mr-1 text-slate-400">↳</span>
+                {parent.title}
+              </>
+            ) : (
+              <span className="text-slate-500">Top-level task</span>
+            )}
+          </span>
+          <span className="ml-auto text-slate-400">▾</span>
+        </button>
+      </div>
+
       <label className="block">
         <span className="text-sm font-medium text-slate-600">Notes (optional)</span>
         <textarea
@@ -237,14 +285,37 @@ export default function TaskForm({
       </div>
 
       {mode === 'edit' && task && (
-        <button
-          type="button"
-          onClick={deleteTask}
-          disabled={busy}
-          className="w-full rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 disabled:opacity-50"
-        >
-          Delete task
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={() => navigate(`/new?parent=${task.id}`)}
+            disabled={busy}
+            className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-50"
+          >
+            + Add subtask
+          </button>
+          <button
+            type="button"
+            onClick={deleteTask}
+            disabled={busy}
+            className="w-full rounded-lg border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 disabled:opacity-50"
+          >
+            Delete task
+            {task.subtask_count > 0 && ' & subtasks'}
+          </button>
+        </>
+      )}
+
+      {pickingParent && (
+        <TaskPicker
+          contexts={contexts}
+          excludeId={task?.id}
+          onPick={(t) => {
+            setParent(t);
+            setPickingParent(false);
+          }}
+          onClose={() => setPickingParent(false)}
+        />
       )}
 
       {picking && (
