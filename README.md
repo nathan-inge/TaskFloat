@@ -70,6 +70,31 @@ make build            # builds frontend + bundles into release binary
 ./backend/target/release/taskorg
 ```
 
+Then open <http://127.0.0.1:5000> — **not** `localhost:5000`.
+
+### macOS: AirPlay squats on port 5000
+
+macOS AirPlay Receiver (the `ControlCenter` process) listens on `*:5000` over both
+IPv4 and IPv6. The backend binds `127.0.0.1:5000`, which wins for IPv4 loopback, but
+anything resolving `localhost` to `::1` first — Node, and most browsers — reaches
+AirPlay instead and gets a bare `403 Forbidden` with `server: AirTunes/…`. A 403 from
+`/api` in local dev is this, not Cloudflare Access.
+
+The Vite proxy already targets `127.0.0.1` for exactly this reason. If you hit the
+backend some other way, address IPv4 explicitly.
+
+Because AirPlay's listener is a wildcard, it also answers `127.0.0.1:5000` whenever
+taskorg is *not* running — so a 403 in dev means either the backend is down or you
+reached it over IPv6. Check with:
+
+```bash
+lsof -nP -iTCP:5000 -sTCP:LISTEN     # want a `taskorg` row, not just `ControlCe`
+curl -si http://127.0.0.1:5000/api/health | head -3
+```
+
+To remove the collision entirely, turn off *System Settings → General → AirDrop &
+Handoff → AirPlay Receiver*. The deployed Linux box is unaffected.
+
 ## Deploy to a Linux CloudDesktop
 
 The intended deploy target is a Linux x86_64 CloudDesktop reachable from your work

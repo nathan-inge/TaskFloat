@@ -30,7 +30,11 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': 'http://localhost:5000',
+      // 127.0.0.1, not localhost: on macOS, Node resolves `localhost` to ::1
+      // first, and AirPlay Receiver (ControlCenter) also listens on *:5000 —
+      // it answers proxied API calls with a bare 403. The backend binds IPv4
+      // loopback, so addressing it directly keeps dev off AirPlay's port.
+      '/api': 'http://127.0.0.1:5000',
     },
   },
   build: {
