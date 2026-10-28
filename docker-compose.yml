@@ -1,0 +1,20 @@
+# Self-hosted TaskFloat. Quick start:
+#   docker compose up -d --build    # → http://localhost:5080
+#
+# TaskFloat has no login of its own — it's single-user and expects a network
+# boundary in front (Tailscale, Cloudflare Access, an auth proxy). See
+# docs/SELF_HOSTING.md.
+
+services:
+  taskfloat:
+    build: .
+    restart: unless-stopped
+    ports:
+      # Loopback only. Host port 5080 rather than 5000 because macOS AirPlay
+      # Receiver squats on :5000.
+      - "127.0.0.1:${TASKFLOAT_PORT:-5080}:5000"
+    volumes:
+      - taskfloat-data:/data
+
+volumes:
+  taskfloat-data:

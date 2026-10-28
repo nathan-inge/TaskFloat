@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Rsync source to a remote CloudDesktop, build there, install the binary,
+# Rsync source to a remote Linux host, build there, install the binary,
 # install/refresh the systemd user unit, restart the service.
 #
-#   REMOTE=user@taskorg-cd ops/deploy.sh
+#   REMOTE=<ssh-host> ops/deploy.sh
 
 set -euo pipefail
 
-REMOTE="${REMOTE:-taskorg-cd}"
+REMOTE="${REMOTE:?set REMOTE=<ssh-host> (e.g. REMOTE=myserver make deploy)}"
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo ">> syncing source to $REMOTE"
@@ -15,6 +15,7 @@ rsync -az --delete \
   --exclude node_modules \
   --exclude 'frontend/dist' \
   --exclude .git \
+  --exclude .claude \
   "$SRC_DIR/" "$REMOTE:taskorg-src/"
 
 echo ">> building on $REMOTE"

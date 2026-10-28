@@ -26,15 +26,10 @@ clean:
 	cd backend && cargo clean
 	rm -rf frontend/node_modules frontend/dist
 
-# Deploy: rsync source to CloudDesktop, build remotely, restart service.
-# Override REMOTE on the command line: make deploy REMOTE=user@taskorg-cd
-REMOTE ?= taskorg-cd
+# Deploy: rsync source to a remote host, build there, restart service.
+# Usage: make deploy REMOTE=<ssh-host>
 deploy:
-	rsync -avz --exclude target --exclude node_modules --exclude dist \
-		./ $(REMOTE):~/taskorg-src/
-	ssh $(REMOTE) 'cd ~/taskorg-src && make build && \
-		install -D backend/target/release/taskorg ~/.local/bin/taskorg && \
-		systemctl --user restart taskorg'
+	./ops/deploy.sh
 
 install-service:
 	install -D ops/taskorg.service ~/.config/systemd/user/taskorg.service

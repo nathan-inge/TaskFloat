@@ -1,211 +1,71 @@
-# Contextual Task Organizer
+# TaskFloat
 
-Single-user, self-hosted task manager. GTD-style nested contexts plus a **Slack Time**
-prioritization formula — tasks sort by real execution math, not arbitrary urgency.
+A single-user, self-hosted task manager that ranks your tasks by **float**:
+how much time you have left after doing the work, not how urgent it feels.
 
 ```
-ST = (due_by − now) − effort_required
+slack = (due_by − now) − effort
 ```
 
-Tasks with `ST ≤ 0` get a `🚨 Overdue Buffer` badge. When the sum of effort across
-urgent tasks (ST ≤ 24h) exceeds your remaining workday capacity, a capacity warning
-appears on the dashboard.
+A 2-hour task due in 3 hours is more pressing than a 10-minute task due in
+an hour. TaskFloat sorts them that way and warns you when today's urgent work
+won't fit in what's left of your workday.
 
-## Nested tasks
+Ships as one ~7 MB Rust binary (SPA embedded) + one SQLite file.
 
-A task can hang under another task to any depth via `parent_id`. Subtasks are ordinary
-tasks — their own effort, due date, context and Slack Time — so a subtask can live in a
-different context than its parent and still sort on its own merits. Rules worth knowing:
+## Features
 
-- **Ordering** is per sibling group: roots sort by Slack Time, and each parent's children
-  sort by Slack Time beneath it. Completed subtasks sink within their group.
-- **Filtering wins over nesting.** A subtask whose parent is filtered out of the current
-  view (different context, or the parent is complete and "Show completed" is off) is shown
-  at the top level rather than disappearing with it.
-- **Deleting a parent deletes its whole subtree** (`ON DELETE CASCADE`). The confirm
-  dialogs say how many subtasks go with it.
-- **Completion does not cascade** in either direction — each task is checked off on its
-  own, and a parent shows a `done/total` badge for its direct subtasks.
-- **Capacity math is unchanged**: every task contributes its own effort. If you split a
-  parent's effort across its subtasks, set the parent's own effort to match what is left,
-  or the day's total will count the work twice.
-- Cycles are rejected by the API (`400`): a task cannot be nested under itself or under
-  one of its own subtasks.
+**Prioritization**
+- Tasks sort by slack time. Anything with no slack left gets an
+  `🚨 Overdue Buffer` badge.
+- Capacity warning when the effort of urgent tasks (≤ 24h of slack) exceeds
+  the hours left in your workday.
+- Due-date shortcuts: end of workday, end of day, end of work week, end of
+  week.
 
-## Architecture (one binary)
+**Organization**
+- Nested contexts, GTD-style (`Work › Project X`, `Home › Errands`), each with
+  a color and an emoji icon, plus open-task counts per context.
+- Pick a current context and the dashboard shows it, either with all of its
+  sub-contexts or on its own.
+- Nested tasks to any depth. Each subtask has its own effort, due date,
+  context, and slack, and parents show `done/total` progress.
+- Free-text notes on every task.
 
-- **Rust** backend (`axum` + `sqlx` over **SQLite**).
-- **React + Vite + TypeScript** frontend, mobile-first with Tailwind + PWA.
-- The frontend is built once and **embedded into the Rust binary** via `rust-embed`.
-- Result: one 7 MB binary, one SQLite file at `~/.taskorg/db.sqlite`. No Docker,
-  no Postgres, no service mesh.
+**Everywhere**
+- Mobile-first installable PWA with a quick-capture screen.
+- REST API with a published OpenAPI spec, built so agents can capture tasks
+  and summarize your week. The app itself contains no LLM.
+
+## Run it
+
+```bash
+docker compose up -d --build
+open http://localhost:5080
+```
+
+TaskFloat has **no login**. It's single-user by design and expects a network
+boundary in front of it: Tailscale, Cloudflare Access, or an auth proxy. See
+**[docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md)** for Docker, Tailscale,
+Cloudflare, and bare-metal (systemd) setups.
+
+## Docs
+
+| | |
+|---|---|
+| [Concepts](./docs/CONCEPTS.md) | Slack time, capacity, and how nested tasks behave |
+| [Self-hosting](./docs/SELF_HOSTING.md) | Docker, Tailscale, Cloudflare Tunnel + Access, systemd deploy, backups |
+| [API](./docs/API.md) | REST endpoints and examples for agents |
+| [Development](./docs/DEVELOPMENT.md) | Local dev setup, make targets, macOS port 5000 gotcha |
 
 ## Stack
 
-| Layer    | Choice                                                          |
-| -------- | --------------------------------------------------------------- |
-| Backend  | Rust 1.94+, `axum`, `sqlx` (sqlite), `tokio`, `utoipa`          |
-| Database | SQLite (WAL mode, foreign keys on)                              |
-| Frontend | React 18, Vite, TypeScript, Tailwind, React Router, vite-pwa    |
-| Auth     | None (single-user; security is the Tailscale boundary)          |
+| Layer    | Choice                                                       |
+| -------- | ------------------------------------------------------------ |
+| Backend  | Rust, `axum`, `sqlx` (SQLite, WAL), `tokio`, `utoipa`        |
+| Frontend | React 18, Vite, TypeScript, Tailwind, React Router, vite-pwa |
+| Auth     | None built in; use a network boundary (see self-hosting)     |
 
-## Quickstart — local dev on Mac
+## License
 
-Two terminals:
-
-```bash
-# 1) backend on :5000
-cd backend && cargo run
-
-# 2) frontend dev server on :3000 (proxies /api → :5000)
-cd frontend && npm install && npm run dev
-```
-
-Open <http://localhost:3000>.
-
-To run the embedded build (no Vite, single binary) locally:
-
-```bash
-make build            # builds frontend + bundles into release binary
-./backend/target/release/taskorg
-```
-
-Then open <http://127.0.0.1:5000> — **not** `localhost:5000`.
-
-### macOS: AirPlay squats on port 5000
-
-macOS AirPlay Receiver (the `ControlCenter` process) listens on `*:5000` over both
-IPv4 and IPv6. The backend binds `127.0.0.1:5000`, which wins for IPv4 loopback, but
-anything resolving `localhost` to `::1` first — Node, and most browsers — reaches
-AirPlay instead and gets a bare `403 Forbidden` with `server: AirTunes/…`. A 403 from
-`/api` in local dev is this, not Cloudflare Access.
-
-The Vite proxy already targets `127.0.0.1` for exactly this reason. If you hit the
-backend some other way, address IPv4 explicitly.
-
-Because AirPlay's listener is a wildcard, it also answers `127.0.0.1:5000` whenever
-taskorg is *not* running — so a 403 in dev means either the backend is down or you
-reached it over IPv6. Check with:
-
-```bash
-lsof -nP -iTCP:5000 -sTCP:LISTEN     # want a `taskorg` row, not just `ControlCe`
-curl -si http://127.0.0.1:5000/api/health | head -3
-```
-
-To remove the collision entirely, turn off *System Settings → General → AirDrop &
-Handoff → AirPlay Receiver*. The deployed Linux box is unaffected.
-
-## Deploy to a Linux CloudDesktop
-
-The intended deploy target is a Linux x86_64 CloudDesktop reachable from your work
-laptop and phone over **Tailscale**.
-
-1. Install Tailscale on the CloudDesktop, your Mac, and your phone. Log in to the same
-   account. Note the CloudDesktop's MagicDNS name (e.g. `taskorg-cd`).
-2. From your Mac:
-   ```bash
-   REMOTE=user@taskorg-cd ops/deploy.sh
-   ```
-   This rsyncs the source, builds release-mode on the CloudDesktop, installs the
-   binary to `~/.local/bin/taskorg`, drops the systemd unit at
-   `~/.config/systemd/user/taskorg.service`, and starts the service.
-3. From any tailnet device:
-   `http://taskorg-cd:5000` — works on Mac, iPhone, Android, over Wi-Fi or cellular.
-4. On the phone, "Add to Home Screen" → the PWA installs as a standalone icon.
-
-### Host firewall (recommended)
-
-App binds to `0.0.0.0:5000` so Tailscale can reach it. Close it to everything else:
-
-```bash
-sudo ufw allow in on tailscale0 to any port 5000
-sudo ufw deny  in on eth0       to any port 5000
-```
-
-### Backup
-
-SQLite is one file. A daily copy is enough:
-
-```bash
-0 3 * * * cp ~/.taskorg/db.sqlite ~/.taskorg/backups/db-$(date +\%F).sqlite
-```
-
-## SSH-tunnel fallback (if Tailscale isn't available)
-
-```bash
-ssh -L 5000:localhost:5000 cloud-desktop
-# Then in a browser:
-open http://localhost:5000
-```
-
-Requires the app to bind on `127.0.0.1:5000` (default). Override via env var if needed.
-
-## REST API for agents
-
-Agents talk to the same REST surface as the UI. The OpenAPI 3 spec is published at
-`/api/openapi.json` — point a tool-use agent at it.
-
-Examples:
-
-```bash
-# Health
-curl http://taskorg-cd:5000/api/health
-
-# Tree of contexts
-curl http://taskorg-cd:5000/api/contexts/tree
-
-# Create a task ("call mom tomorrow at 5pm")
-curl -X POST http://taskorg-cd:5000/api/tasks \
-  -H 'content-type: application/json' \
-  -d '{"title":"call mom","effort_minutes":15,"context_id":"<uuid>","due_by":"2026-06-04T17:00:00Z"}'
-
-# Add a subtask under an existing task
-curl -X POST http://taskorg-cd:5000/api/tasks \
-  -H 'content-type: application/json' \
-  -d '{"title":"book flights","effort_minutes":30,"context_id":"<uuid>","parent_id":"<task-uuid>"}'
-
-# Promote a subtask back to the top level (explicit null; omit the field to leave it alone)
-curl -X PATCH http://taskorg-cd:5000/api/tasks/<task-uuid> \
-  -H 'content-type: application/json' -d '{"parent_id":null}'
-
-# This week's completed tasks (drives weekly summaries)
-curl 'http://taskorg-cd:5000/api/tasks?include_completed=true&completed_after=2026-05-28T00:00:00Z'
-```
-
-NLP parsing ("call mom tomorrow at 5pm" → `{title, due_by, effort_minutes}`) and weekly
-summarization both live **agent-side**. The app stays LLM-free.
-
-## Configuration
-
-| Env var        | Default                                     | Notes                                |
-| -------------- | ------------------------------------------- | ------------------------------------ |
-| `DATABASE_URL` | `sqlite://~/.taskorg/db.sqlite?mode=rwc`   | SQLite URL                           |
-| `BIND_ADDR`    | `127.0.0.1:5000`                            | Set to `0.0.0.0:5000` for Tailscale  |
-| `RUST_LOG`     | `taskorg=info,tower_http=info`              | Standard `tracing-subscriber` filter |
-
-## Project layout
-
-```
-backend/   - Rust + axum + sqlx + utoipa; embeds frontend/dist
-frontend/  - React + Vite + Tailwind + PWA
-ops/       - systemd unit, deploy script
-Makefile   - dev / build / deploy targets
-```
-
-## Make targets
-
-| Target                | What it does                                                 |
-| --------------------- | ------------------------------------------------------------ |
-| `make dev-backend`    | `cargo run` (binds 127.0.0.1:5000)                           |
-| `make dev-frontend`   | Vite dev server on :3000 with `/api` proxy                   |
-| `make build`          | Build the SPA, then release-build the Rust binary            |
-| `make test`           | `cargo test` + (frontend tests if any)                       |
-| `make install-service`| Install + enable the systemd unit (run on the CloudDesktop)  |
-
-## Out of scope (MVP)
-
-- Authentication / multi-user
-- In-app NLP intake (agents do this)
-- In-app LLM weekly digest (agents do this)
-- Offline write queue / background sync
-- Native mobile app (the PWA is the mobile path)
+[MIT](./LICENSE)

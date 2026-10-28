@@ -5,7 +5,7 @@
 #   sudo cloudflared tunnel create taskorg
 #   sudo cp ops/cloudflared.config.yml.example /etc/cloudflared/config.yml
 #   # replace TUNNEL_ID and the hostname below
-#   sudo cloudflared tunnel route dns taskorg todo.nathaninge.com
+#   sudo cloudflared tunnel route dns taskorg todo.example.com
 #   sudo cloudflared service install
 #   sudo systemctl restart cloudflared
 
@@ -13,6 +13,6 @@ tunnel: TUNNEL_ID
 credentials-file: /etc/cloudflared/TUNNEL_ID.json
 
 ingress:
-  - hostname: todo.nathaninge.com
+  - hostname: todo.example.com
     service: http://127.0.0.1:5000
   - service: http_status:404
